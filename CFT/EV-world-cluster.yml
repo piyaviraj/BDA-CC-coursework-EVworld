@@ -1,0 +1,405 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Deploy an AWS Fargate cluster to host EV world microservices. This lunches a VPC and two public and private subnets under different availability zones with a NAT gateway where all containers are getting deployed only within private subnets.
+Parameters:
+  VPCCIDR:
+    Description: Sepecific CIDR for the EV services cluster VPC
+    Type: String
+    Default: 10.0.0.0/16
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x.
+  CIDRPublicSubnetA:
+    Description: Sepecific CIDR for one public subnet A
+    Type: String
+    Default: 10.0.0.0/24
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x.
+  CIDRPublicSubnetB:
+    Description: Sepecific CIDR for one public subnet B
+    Type: String
+    Default: 10.0.1.0/24
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x.
+  CIDRPrivateSubnetA:
+    Description: Sepecific CIDR for one private subnet B
+    Type: String
+    Default: 10.0.2.0/24
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x.
+  CIDRPrivateSubnetB:
+    Description: Sepecific CIDR for one private subnet B
+    Type: String
+    Default: 10.0.3.0/24
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x.
+  EVClusterName:
+    Type: String
+    Default: EV-world-services-cluster
+    Description: The name of the EV services cluster stack
+  LoadBalandcerOpenPort:
+    Type: Number
+    Default: 80
+    Description: "The port that the Load balancer listen for incoming traffic"
+  LoadBalandcerAllowCIDR:
+    Description: The load balancer allow incoming traffic from this CIDR range
+    Type: String
+    Default: 0.0.0.0/0
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x.
+  
+Resources:
+  EVServicesClusterVPC:
+    Type: AWS::EC2::VPC
+    Properties: 
+      CidrBlock: !Ref VPCCIDR
+      EnableDnsHostnames: 'true'
+      Tags:
+        - 
+          Key: "Name"
+          Value: !Join ['-', [!Ref 'EVClusterName', 'VPC']] 
+
+  EVServicesClusterIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - 
+          Key: "Name"
+          Value: !Join ['-', [!Ref 'EVClusterName', 'IGW']] 
+
+  EVServicesClusterAttachIGWToVPN:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref EVServicesClusterVPC
+      InternetGatewayId: !Ref EVServicesClusterIGW
+
+  EVServicesClusterPublicRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref EVServicesClusterVPC
+      Tags:
+        - 
+          Key: "Name"
+          Value: !Join ['-', [!Ref 'EVClusterName', 'PublicRT']]
+          
+  EVServicesClusterPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: EVServicesClusterPublicRT
+    Properties:
+      RouteTableId: !Ref EVServicesClusterPublicRT
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref EVServicesClusterIGW
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref EVServicesClusterVPC
+      CidrBlock: !Ref CIDRPublicSubnetA
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      MapPublicIpOnLaunch: "true"
+      Tags:
+        - 
+          Key: "Name"
+          Value: !Join ['-', [!Ref 'EVClusterName', 'public-subnet-A']]
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref EVServicesClusterVPC
+      CidrBlock: !Ref CIDRPublicSubnetB
+      AvailabilityZone: !Select 
+        - 1
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      MapPublicIpOnLaunch: "true"
+      Tags:
+        - 
+          Key: "Name"
+          Value: !Join ['-', [!Ref 'EVClusterName', 'public-subnet-B']]
+
+  RTAssociationForPublicSubnetA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref EVServicesClusterPublicRT
+
+  RTAssociationForPublicSubnetB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref EVServicesClusterPublicRT
+
+  EVServicesClusterPrivateRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref EVServicesClusterVPC
+      Tags:
+        - 
+          Key: "Name"
+          Value: !Join ['-', [!Ref 'EVClusterName', 'PrivateRT']]
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref EVServicesClusterVPC
+      CidrBlock: !Ref CIDRPrivateSubnetA
+      AvailabilityZone: !Select 
+        - 0
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      MapPublicIpOnLaunch: "false"
+      Tags:
+        - 
+          Key: "Name"
+          Value: !Join ['-', [!Ref 'EVClusterName', 'private-subnet-A']]
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref EVServicesClusterVPC
+      CidrBlock: !Ref CIDRPrivateSubnetB
+      AvailabilityZone: !Select 
+        - 1
+        - !GetAZs 
+          Ref: 'AWS::Region'
+      MapPublicIpOnLaunch: "false"
+      Tags:
+        - 
+          Key: "Name"
+          Value: !Join ['-', [!Ref 'EVClusterName', 'private-subnet-B']]
+  
+  RTAssociationForPrivateSubnetA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref EVServicesClusterPrivateRT
+
+  RTAssociationForPrivateSubnetB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref EVServicesClusterPrivateRT
+
+  EVServicesClusterLoadBalancerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http to client host
+      VpcId: !Ref EVServicesClusterVPC
+      
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: !Ref LoadBalandcerOpenPort
+        ToPort: !Ref LoadBalandcerOpenPort
+        CidrIp: !Ref LoadBalandcerAllowCIDR
+
+  EVServicsesSG:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: !Sub "EV world micro services SG, Allow access only within the VPC"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '8000'
+          ToPort: '61000'
+          CidrIp: !GetAtt EVServicesClusterVPC.CidrBlock
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: !GetAtt EVServicesClusterVPC.CidrBlock
+      VpcId: !Ref EVServicesClusterVPC
+
+#Begin: Setting up NAT gateway and Elastic IP
+
+  EIPEVServicesCluster:
+   Type: AWS::EC2::EIP
+   Properties:
+      Domain: vpc
+
+  NATGateWayEVServicesCluster:
+   Type: AWS::EC2::NatGateway
+   Properties:
+      AllocationId:
+         Fn::GetAtt:
+         - EIPEVServicesCluster
+         - AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - 
+          Key: "Name"
+          Value: !Join ['-', [!Ref 'EVClusterName', 'NATGateWay']]
+
+  NATRouteEVServicesCluster:
+   Type: AWS::EC2::Route
+   Properties:
+      RouteTableId: !Ref EVServicesClusterPrivateRT
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateWayEVServicesCluster
+
+  #Ends: Setting up NAT gateway and Elastic IP
+
+  #Begin: Setting up Cloudwatch log group
+  CloudwatchLogsGroupEVServices:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['-', [EVWorldServiceLogGroup, !Ref 'AWS::StackName']]
+      RetentionInDays: 14
+  #Ends: Setting Cloudwatch log group
+
+  ClusterLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: ALB-EVWMicroServices
+      Scheme: internet-facing
+      Subnets: 
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+      SecurityGroups: 
+        - !Ref EVServicsesSG
+        - !Ref EVServicesClusterLoadBalancerSG
+      Tags: 
+        - 
+          Key: "Name"
+          Value: !Join ['-', [!Ref 'EVClusterName', 'Load-balancer']]
+
+  #Export this
+  ClusterALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref 'DummyTargetGroupPublic'
+      LoadBalancerArn: !Ref 'ClusterLoadBalancer'
+      Port: !Ref LoadBalandcerOpenPort
+      Protocol: HTTP
+
+  #Dummy target group to handle any un-attend traffic before any services start
+  DummyTargetGroupPublic:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 6
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Name: !Join ['-', [!Ref 'AWS::StackName', 'DefaultTG']]
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref EVServicesClusterVPC
+      Tags: 
+        - 
+          Key: "Name"
+          Value: !Join ['-', [!Ref 'EVClusterName', 'DefaultTG']]
+
+  EVWorldServicesCluster:
+    Type: AWS::ECS::Cluster
+    Properties: 
+      ClusterName: !Ref EVClusterName
+      Tags: 
+        - 
+          Key: "Name"
+          Value: !Join ['-', [!Ref 'EVClusterName', 'Fargate']]
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs-tasks.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+        - PolicyName: AmazonECSTaskExecutionRolePolicy
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action:
+                # Allow the ECS Tasks to download images from ECR
+                - 'ecr:GetAuthorizationToken'
+                - 'ecr:BatchCheckLayerAvailability'
+                - 'ecr:GetDownloadUrlForLayer'
+                - 'ecr:BatchGetImage'
+
+                # Allow the ECS tasks to upload logs to CloudWatch
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+              Resource: '*'
+
+Outputs:
+  VPCId:
+    Description: The VPC Id of the EV cluster network
+    Value: !Ref EVServicesClusterVPC
+    Export:
+      Name: !Sub "${AWS::StackName}-VPCID"
+  VPCCidr:
+    Description: The VPC Id of the EV cluster network
+    Value: !GetAtt EVServicesClusterVPC.CidrBlock
+    Export:
+      Name: !Sub "${AWS::StackName}-VPCCidr"
+  SubnetPublicA:
+    Description: The Public subnet A
+    Value: !Ref PublicSubnetA
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnetA"
+  SubnetPublicB:
+    Description: The Public subnet B
+    Value: !Ref PublicSubnetB
+    Export:
+      Name: !Sub "${AWS::StackName}-PublicSubnetB"
+  SubnetPrivateA:
+    Description: The Private subnet A
+    Value: !Ref PrivateSubnetA
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetA"
+  SubnetPrivateB:
+    Description: The Private subnet B
+    Value: !Ref PrivateSubnetB
+    Export:
+      Name: !Sub "${AWS::StackName}-PrivateSubnetB"
+  AllServicesSG:
+    Description: Security group for all microservices within the cluster
+    Value: !Ref EVServicsesSG
+    Export:
+      Name: !Sub "${AWS::StackName}-EVServicsesSG"
+  EVCluster:
+    Description: The EV services cluster to deploy microservices
+    Value: !Ref EVWorldServicesCluster
+    Export:
+      Name: !Sub "${AWS::StackName}-EVCluster"
+  ALBListener:
+    Description: The Cluster ALB listener
+    Value: !Ref ClusterALBListener
+    Export:
+      Name: !Sub "${AWS::StackName}-ClusterALBListener"
+  CloudWatchLogGroup:
+    Description: The CloudWatch log group which collect all logs related all of services runing under this cluster
+    Value: !Ref CloudwatchLogsGroupEVServices
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudwatchLogsGroupEVServices"
+  ServiceTaskExecutionRole:
+    Description: The ECS Task execution role.
+    Value: !Ref ECSTaskExecutionRole
+    Export:
+      Name: !Sub "${AWS::StackName}-ServiceTaskExecutionRole"
+  EVClusterName:
+    Description: The EV world cluster name
+    Value: !Ref EVClusterName
+    Export:
+      Name: !Sub "${AWS::StackName}-EVClusterName"
+
+  
+

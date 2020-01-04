@@ -1,0 +1,186 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Deploy an EV world application microservice to the active EV world Fargate cluster.
+Parameters:
+  EVStackName:
+    Type: String
+    Default: EV-cluster
+    Description: EV world cluster deployment stack name
+
+  ServiceName:
+    Type: String
+    Default: model-search-service
+    Description: The name of the Microservice to be deployed
+
+  DockerImageUrl:
+    Type: String
+    Default: 815723692745.dkr.ecr.us-east-1.amazonaws.com/ev-world-services:v1
+    Description: The url of a docker image that contains the application process that will handle the traffic for this service
+
+  ServicePort:
+    Type: Number
+    Default: 8084
+    Description: What port number the application inside the docker container is binding to
+
+  ContainerCpu:
+    Type: Number
+    Default: 256
+    Description: How much CPU to give the container. 1024 is 1 CPU
+
+  ContainerMemory:
+    Type: Number
+    Default: 512
+    Description: How much memory in megabytes to give the container
+    
+  ServicePath:
+    Type: String
+    Default: "/models*"
+    Description: A path on the public load balancer that this service should be connected to. Use * to send all load balancer traffic to this service.
+  
+  HealthCheckPath:
+    Type: String
+    Default: "/models/health_check"
+    Description: The Path where the load balancer will check for the continer health.
+
+  Priority:
+    Type: Number
+    Default: 1
+    Description: The priority for the routing rule added to the load balancer. This only applies if your have multiple services which have been assigned to different paths on the load balancer.
+
+  MinCapacity:
+    Type: Number
+    Default: 1
+    Description: "Minimum Capacity"
+
+  DesiredCount:
+    Type: Number
+    Default: 2
+    Description: "Desired Capacity"
+
+  MaxCapacity:
+    Type: Number
+    Default: 4
+    Description: "Maximum Capacity"
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "EV cluster parameters"
+        Parameters:
+          - EVStackName
+      -
+        Label:
+          default: "Autoscaling configuration for this service"
+        Parameters:
+          - MinCapacity
+          - DesiredCount
+          - MaxCapacity
+          - ContainerCpu
+          - ContainerMemory
+      -
+        Label:
+          default: "Container resources related configurations"
+        Parameters:
+          - ContainerCpu
+          - ContainerMemory
+      -
+        Label:
+          default: "Application Service related Configuration"
+        Parameters:
+          - ServiceName
+          - DockerImageUrl
+          - ServicePort
+          - ServicePath
+          - HealthCheckPath
+          - Priority
+
+Resources:
+
+  ServiceTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Join ['', [!Ref 'EVStackName', !Ref 'ServiceName']]
+      Cpu: !Ref ContainerCpu
+      Memory: !Ref ContainerMemory
+      NetworkMode: "awsvpc"
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn:
+        Fn::ImportValue:
+                !Sub "${EVStackName}-ServiceTaskExecutionRole"
+      ContainerDefinitions:
+      - Name: !Ref ServiceName
+        Essential: 'true'
+        Image: !Ref DockerImageUrl
+        LogConfiguration:
+          LogDriver: awslogs
+          Options:
+            awslogs-group:
+              Fn::ImportValue:
+                !Sub "${EVStackName}-CloudwatchLogsGroupEVServices"
+            awslogs-region: !Ref 'AWS::Region'
+            awslogs-stream-prefix: !Ref ServiceName
+        PortMappings:
+        - ContainerPort: !Ref ServicePort
+
+  ServiceALBListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+      - Type: forward
+        TargetGroupArn: !Ref 'ServiceTargetGroup'
+      Conditions:
+      - Field: path-pattern
+        Values: [!Ref ServicePath]
+      ListenerArn:
+        Fn::ImportValue:
+          !Sub "${EVStackName}-ClusterALBListener"
+      Priority: !Ref Priority
+
+  ServiceTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 10
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      Name: !Ref ServiceName
+      Port: !Ref ServicePort
+      Protocol: HTTP
+      UnhealthyThresholdCount: 10
+      TargetType: ip
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${EVStackName}-VPCID"
+
+  ClusterServices:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster:
+        Fn::ImportValue:
+          !Sub "${EVStackName}-EVCluster"
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      ServiceName: !Ref ServiceName
+      HealthCheckGracePeriodSeconds: 60
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - Fn::ImportValue:
+                !Sub "${EVStackName}-EVServicsesSG"
+          Subnets:
+            - Fn::ImportValue:
+                !Sub "${EVStackName}-PrivateSubnetA"
+            - Fn::ImportValue:
+                !Sub "${EVStackName}-PrivateSubnetB"
+      LoadBalancers:
+      - ContainerName: !Ref ServiceName
+        ContainerPort: !Ref ServicePort
+        TargetGroupArn: !Ref ServiceTargetGroup
+      TaskDefinition: !Ref ServiceTaskDefinition
+
+  
+
