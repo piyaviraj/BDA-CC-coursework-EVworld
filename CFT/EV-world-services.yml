@@ -53,13 +53,18 @@ Parameters:
 
   DesiredCount:
     Type: Number
-    Default: 2
+    Default: 1
     Description: "Desired Capacity"
 
   MaxCapacity:
     Type: Number
     Default: 4
     Description: "Maximum Capacity"
+
+  AutoScalingInitiatingTargetValue:
+    Type: Number
+    Default: 30.0
+    Description: "When this value exceeds, the auto scaling out kick off"
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -78,6 +83,7 @@ Metadata:
           - MaxCapacity
           - ContainerCpu
           - ContainerMemory
+          - AutoScalingInitiatingTargetValue
       -
         Label:
           default: "Container resources related configurations"
@@ -181,6 +187,52 @@ Resources:
         ContainerPort: !Ref ServicePort
         TargetGroupArn: !Ref ServiceTargetGroup
       TaskDefinition: !Ref ServiceTaskDefinition
+
+  ServiceAutoScalingTarget:
+      Type: AWS::ApplicationAutoScaling::ScalableTarget
+      Properties:
+        MaxCapacity: !Ref MaxCapacity
+        MinCapacity: !Ref MinCapacity
+        ResourceId:
+          Fn::Join:
+          - "/"
+          - - service
+            - Fn::ImportValue:
+                !Sub "${EVStackName}-EVCluster"
+            - !GetAtt [ClusterServices, Name]
+        RoleARN: 
+          Fn::ImportValue:
+            !Sub "${EVStackName}-ServiceAutoScaleRoleArn"
+        ScalableDimension: ecs:service:DesiredCount
+        ServiceNamespace: ecs
+  
+  TargetTrackingCPUPolicy:
+      Type: AWS::ApplicationAutoScaling::ScalingPolicy
+      Properties:
+        PolicyName: Fargate-TTScalingPolicy
+        PolicyType: TargetTrackingScaling
+        ScalingTargetId:
+          Ref: ServiceAutoScalingTarget
+        ScalableDimension: ecs:service:DesiredCount
+        ServiceNamespace: ecs
+        TargetTrackingScalingPolicyConfiguration:
+          TargetValue: !Ref AutoScalingInitiatingTargetValue
+          ScaleInCooldown: 60
+          ScaleOutCooldown: 60
+          PredefinedMetricSpecification:
+            PredefinedMetricType: ECSServiceAverageCPUUtilization
+
+Outputs:
+  EVClusterService:
+    Description: The EV Cluster deployed container service
+    Value: !Ref ClusterServices
+    Export:
+      Name: !Sub "${EVStackName}-${ServiceName}"
+  EVClusterServiceTaskDef:
+    Description: The EV Cluster deployed container service task definition
+    Value: !Ref ServiceTaskDefinition
+    Export:
+      Name: !Sub "${EVStackName}-TaskDef"
 
   
 

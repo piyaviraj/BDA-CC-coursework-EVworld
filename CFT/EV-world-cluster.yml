@@ -339,6 +339,28 @@ Resources:
                 - 'logs:PutLogEvents'
               Resource: '*'
 
+  ServiceAutoScaleRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [application-autoscaling.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+      - PolicyName: ecs-service
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - 'ecs:DescribeServices'
+                - 'ecs:UpdateService'
+                - 'cloudwatch:DescribeAlarms'
+              Resource: '*'
+
 Outputs:
   VPCId:
     Description: The VPC Id of the EV cluster network
@@ -400,6 +422,11 @@ Outputs:
     Value: !Ref EVClusterName
     Export:
       Name: !Sub "${AWS::StackName}-EVClusterName"
+  ServiceAutoScaleRoleArn:
+    Description: The EV world cluster name
+    Value: !GetAtt ServiceAutoScaleRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ServiceAutoScaleRoleArn"
 
   
 
