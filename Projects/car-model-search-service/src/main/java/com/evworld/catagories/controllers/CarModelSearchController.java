@@ -10,10 +10,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.evworld.catagories.MetaDataUtils;
 import com.evworld.catagories.models.CarModel;
 import com.evworld.catagories.models.CarModelSearchResponse;
 import com.evworld.catagories.repositories.CarModelRepository;
+import com.evworld.catagories.utils.MetaDataUtils;
 
 @RestController
 public class CarModelSearchController {
@@ -36,7 +36,7 @@ public class CarModelSearchController {
 		} catch (Exception e) {
 			
 		}
-		
+
 		List<CarModel> carModelList = carModelRepository.findByModelName(model);
 		Map<String, Object> metaData = new HashMap<String, Object>();
 		

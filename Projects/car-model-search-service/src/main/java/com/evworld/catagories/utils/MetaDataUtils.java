@@ -1,4 +1,4 @@
-package com.evworld.catagories;
+package com.evworld.catagories.utils;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
