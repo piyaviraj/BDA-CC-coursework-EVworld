@@ -13,7 +13,7 @@ Parameters:
 
   DockerImageUrl:
     Type: String
-    Default: 815723692745.dkr.ecr.us-east-1.amazonaws.com/ev-world-services:v1
+    Default: 815723692745.dkr.ecr.us-east-1.amazonaws.com/ev-world-model-search-service:v1
     Description: The url of a docker image that contains the application process that will handle the traffic for this service
 
   ServicePort:
@@ -63,7 +63,7 @@ Parameters:
 
   AutoScalingInitiatingTargetValue:
     Type: Number
-    Default: 30.0
+    Default: 40.0
     Description: "When this value exceeds, the auto scaling out kick off"
 
 Metadata:
@@ -232,7 +232,7 @@ Outputs:
     Description: The EV Cluster deployed container service task definition
     Value: !Ref ServiceTaskDefinition
     Export:
-      Name: !Sub "${EVStackName}-TaskDef"
+      Name: !Sub "${ServiceName}-TaskDef"
 
   
 
