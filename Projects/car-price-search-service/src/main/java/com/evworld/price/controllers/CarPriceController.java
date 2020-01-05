@@ -36,7 +36,7 @@ public class CarPriceController {
 		} catch (Exception e) {
 			
 		}
-		MetaDataUtils.getHashList(0);
+
 		List<CarModelPrice> carModelList = carModelPriceRepository.findByModelName(model);
 		Map<String, Object> metaData = new HashMap<String, Object>();
 		
